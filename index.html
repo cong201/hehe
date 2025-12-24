@@ -84,6 +84,7 @@
   <body>
     <div id="message">Merry Christmas 🎄</div>
     <div id="center-text">Mai Linh</div>
+
     <audio id="bgMusic" loop>
       <source src="https://files.catbox.moe/v1r2ab.mp3" type="audio/mpeg" />
     </audio>
@@ -97,11 +98,15 @@
       // --- CẤU HÌNH ---
       const STAR_URL =
         "https://cdn-icons-png.flaticon.com/128/1828/1828884.png";
+      // Icon bánh sinh nhật (như trong ảnh bạn gửi) hoặc quà
       const GIFT_URL =
         "https://cdn-icons-png.flaticon.com/128/4213/4213654.png";
 
       const PARTICLE_COUNT = 20000;
       const PARTICLE_SIZE = 0.22;
+
+      // Khoảng cách tối thiểu giữa các icon để không bị đè (số càng lớn càng thưa)
+      const MIN_DISTANCE_BETWEEN_ICONS = 3.0;
 
       const scene = new THREE.Scene();
       scene.fog = new THREE.FogExp2(0x020205, 0.012);
@@ -209,44 +214,93 @@
       const particles = new THREE.Points(geometry, material);
       scene.add(particles);
 
-      // --- TRANG TRÍ ---
+      // --- TRANG TRÍ THÔNG MINH (KHÔNG ĐÈ NHAU) ---
       const decoSprites = [];
       const decoGroup = new THREE.Group();
       scene.add(decoGroup);
 
-      function createDeco(textureUrl, count, baseScale, yOffset) {
+      // Mảng lưu vị trí các vật đã đặt để kiểm tra va chạm
+      const occupiedPositions = [];
+
+      // Thêm vị trí đỉnh cây vào danh sách đã chiếm chỗ trước
+      occupiedPositions.push(new THREE.Vector3(0, treeHeight / 2 + 0.5, 0));
+
+      function createDecoSmart(textureUrl, count, baseScale, yOffset) {
         texLoader.load(textureUrl, (texture) => {
           const mat = new THREE.SpriteMaterial({
             map: texture,
             transparent: true,
             opacity: 1.0,
           });
-          for (let i = 0; i < count; i++) {
-            const sprite = new THREE.Sprite(mat);
-            const h = Math.random() * treeHeight;
+
+          let placedCount = 0;
+          let attempts = 0;
+          // Thử tối đa 1000 lần để tìm chỗ trống, tránh treo trình duyệt
+          const maxAttempts = 1000;
+
+          while (placedCount < count && attempts < maxAttempts) {
+            attempts++;
+
+            // 1. Random vị trí ngẫu nhiên
+            const h = Math.random() * (treeHeight - 2); // Trừ bớt đỉnh và đáy xíu
             const angle = Math.random() * Math.PI * 2;
             const r = ((treeHeight - h) / treeHeight) * treeBaseRadius + 0.5;
-            sprite.position.set(
-              r * Math.cos(angle),
-              h - treeHeight / 2 + yOffset,
-              r * Math.sin(angle)
+
+            const x = r * Math.cos(angle);
+            const y = h - treeHeight / 2 + yOffset;
+            const z = r * Math.sin(angle);
+
+            const newPos = new THREE.Vector3(x, y, z);
+
+            // 2. Kiểm tra va chạm với TẤT CẢ các vật đã đặt trước đó
+            let isOverlapping = false;
+            for (const existingPos of occupiedPositions) {
+              // Nếu khoảng cách < giới hạn cho phép => Đè nhau
+              if (newPos.distanceTo(existingPos) < MIN_DISTANCE_BETWEEN_ICONS) {
+                isOverlapping = true;
+                break;
+              }
+            }
+
+            // 3. Nếu không đè thì đặt vào
+            if (!isOverlapping) {
+              const sprite = new THREE.Sprite(mat);
+              sprite.position.copy(newPos);
+
+              // Random kích thước
+              const s = baseScale * (0.8 + Math.random() * 0.4);
+              sprite.scale.set(s, s, 1);
+
+              // Vận tốc bay
+              sprite.userData.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.2,
+                0.2 + Math.random() * 0.3,
+                (Math.random() - 0.5) * 0.2
+              );
+
+              decoGroup.add(sprite);
+              decoSprites.push(sprite);
+
+              // Lưu vị trí này vào danh sách đã chiếm chỗ
+              occupiedPositions.push(newPos);
+              placedCount++;
+            }
+          }
+
+          if (placedCount < count) {
+            console.log(
+              `Chỉ đặt được ${placedCount}/${count} vật do hết chỗ trống!`
             );
-            const s = baseScale * (0.8 + Math.random() * 0.4);
-            sprite.scale.set(s, s, 1);
-            sprite.userData.velocity = new THREE.Vector3(
-              (Math.random() - 0.5) * 0.2,
-              0.2 + Math.random() * 0.3,
-              (Math.random() - 0.5) * 0.2
-            );
-            decoGroup.add(sprite);
-            decoSprites.push(sprite);
           }
         });
       }
 
-      createDeco(STAR_URL, 50, 1.5, 0);
-      createDeco(GIFT_URL, 30, 1.8, -1);
+      // GỌI HÀM TẠO VẬT TRANG TRÍ
+      // Số lượng ít vừa phải để đảm bảo có chỗ trống
+      createDecoSmart(STAR_URL, 18, 1.5, 0);
+      createDecoSmart(GIFT_URL, 12, 1.8, -0.5);
 
+      // Ngôi sao đỉnh (Giữ nguyên)
       texLoader.load(STAR_URL, (texture) => {
         const topStar = new THREE.Sprite(
           new THREE.SpriteMaterial({ map: texture })
@@ -264,16 +318,11 @@
 
       document.getElementById("animBtn").addEventListener("click", () => {
         if (state === "tree") {
-          // 1. PHÁT NHẠC
           const audio = document.getElementById("bgMusic");
           audio.play().catch((error) => {
-            console.log(
-              "Không tìm thấy file nhạc music.mp3 hoặc trình duyệt chặn autoplay."
-            );
-            alert("Bạn nhớ tải file nhạc 'music.mp3' để vào cùng thư mục nhé!");
+            console.log("Lỗi autoplay nhạc");
           });
 
-          // 2. CHẠY HIỆU ỨNG
           state = "exploding";
           progress = 0;
           document.getElementById("animBtn").style.opacity = 0;
